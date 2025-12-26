@@ -8,6 +8,7 @@ section .text
     global puts
     global putc
     global puti
+    global putf
     global printf
 
 ; prints a string of a known length

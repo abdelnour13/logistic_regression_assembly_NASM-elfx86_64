@@ -13,8 +13,7 @@ section .text
 
     global display_matrix
 
-    global gtv
-
+    global gtvs
     global mulvs
     global addvs
     global divvs
@@ -96,7 +95,7 @@ display_matrix:
 
 ; Return ones if a number is greater than a threshold else zeros
 ; gtv(long size, double* v, double threshold, double* out)
-gtv:
+gtvs:
 
     ; function frame
     push rbp
@@ -865,7 +864,7 @@ vdotproduct:
     ret
 
 ; compute sum of all elements
-; vsum(long size, double* v, double* out)
+; vhsum(long size, double* v, double* out)
 vhsum:
 
     ; Stack frame
