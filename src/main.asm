@@ -5,10 +5,12 @@ section .data
     header_str db "- First five rows : ", 0xA, 0
     labels_header_str db "- First five labels : ", 0xA, 0
     start_algo_str db "- Running logistic regression with %d epochs...", 0xA, 0
-    data dq 7.25, 2.64, 0.32, 5.5, 16.45, 2.888, 0.01, 2.1, 0.7, 0.4, 0.2, 4.4, 2.7, 3.3, 2.3
-    labels dq 1.0, 0.0, 0.0, 1.0, 1.0
-    one_float dq 0.9999999
+    weights_str db "- Weight : ", 0
+    bias_str db "- Bias : %f.", 0xA, 0
+    predictions_str db "First five predictions : ", 0xA, 0
+    accuracy_str db "- Accuracy : %f.", 0xA, 0
     lr dq 0.1
+    threshold dq 0.5
 
 section .bss
     buffer resb 1024
@@ -79,6 +81,8 @@ main:
     mov rbp, rsp
 
     ; Local Variables
+    ; Accuracy : rbp-0x50
+    ; Pointer to predictions : rbp-0x48
     ; Pointer to bias : rbp-0x40
     ; Pointer to weights : rbp-0x38
     ; Number of columns : rbp-0x30
@@ -87,7 +91,7 @@ main:
     ; Number of Rows : rbp-0x18
     ; Number of cols : rbp-0x10
     ; Pointer to features : rbp-0x8
-    sub rsp, 0x40
+    sub rsp, 0x50
 
     ;;;;;;;;;;; Load Data From Files ;;;;;;;;;;; 
 
@@ -175,8 +179,6 @@ main:
     mov rdx, rbp
     sub rdx, 0x38
 
-    ; jmp .exit
-
     push rax
     push rdx
     push 0x64
@@ -184,9 +186,67 @@ main:
     push QWORD [rbp-0x20]
     push QWORD [rbp-0x8]
     push QWORD [rbp-0x10]
-    push 1024
+    push QWORD [rbp-0x18]
     call logistic_regression
     add rsp, 0x40
+
+    ; Print Weights
+    push weights_str
+    call puts
+    add rsp, 0x8
+
+    push QWORD [rbp-0x38]
+    push QWORD [rbp-0x10]
+    push QWORD 0x1
+    call display_matrix
+    add rsp, 0x18
+
+    push QWORD [rbp-0x40]
+    push bias_str
+    call printf
+    add rsp, 0x10
+
+    ; Inference & compute accuracy
+    mov rax, rbp
+    sub rax, 0x48
+
+    push rax
+    push QWORD [rbp-0x40]
+    push QWORD [rbp-0x38]
+    push QWORD [rbp-0x8]
+    push QWORD [rbp-0x10]
+    push QWORD [rbp-0x18]
+    call inference
+    add rsp, 0x30
+
+    ; Display first five predictions
+    push predictions_str
+    call puts
+    add rsp, 0x8
+
+    push QWORD [rbp-0x48]
+    push 0x1
+    push 0x5
+    call display_matrix
+    add rsp, 0x18
+
+    ; Compute Accuracy
+    mov rax, rbp
+    sub rax, 0x50
+
+    push rax
+    push QWORD [threshold]
+    push QWORD [rbp-0x48]
+    push QWORD [rbp-0x20]
+    push QWORD [rbp-0x18]
+    call accuracy
+    add rsp, 0x28
+
+    ; Display accuracy
+    push QWORD [rbp-0x50]
+    push accuracy_str
+    call printf
+    add rsp, 0x10
 
 
 .exit:
