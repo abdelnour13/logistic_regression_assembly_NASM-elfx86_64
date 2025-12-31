@@ -4,6 +4,7 @@ section .data
     negative_double dq -1.0
 
 section .text
+    extern puti
     global parse_float
     global exit
 
@@ -86,7 +87,7 @@ parse_float:
     jmp .loop2
 .part3:
     cvtsi2sd xmm0, rcx
-    jmp .done
+    jmp .return
 .part4:
     cvtsi2sd xmm1, rcx
     cvtsi2sd xmm2, rsi

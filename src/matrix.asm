@@ -3,7 +3,10 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 section .data
-    one_float dq 1.0
+    zero_float dq 0.0
+    one_float  dq 1.0
+    e          dq 2.7182818284
+    sign_mask  dq 0x8000000000000000
 
 section .text
 
@@ -17,6 +20,9 @@ section .text
     global mulvs
     global addvs
     global divvs
+
+    global divsv
+    global expv
 
     global addvv
     global subvv
@@ -34,7 +40,7 @@ section .text
     global std_0
     global std_0
 
-    global vlogpd
+    global transpose
 
 ; Displays a matrix
 ; display_matrix(long nrows, long ncols, double* buff)
@@ -159,7 +165,7 @@ gtvs:
     ret
 
 
-; Addition of a vector with a scalar
+; Division of a vector with a scalar
 ; divvs(long size, double* v1, double scalar, double* out)
 divvs:
 
@@ -218,6 +224,222 @@ divvs:
     mov rsp, rbp
     pop rbp
     ret    
+
+; Divison of a scalar and a vector
+; divsv(long size, double* v1, double scalar, double* out)
+divsv:
+
+    ; function frame
+    push rbp
+    mov rbp, rsp
+
+    ; Load Arguments
+    mov rax, [rbp+16]
+    mov rdi, [rbp+24]
+    vbroadcastsd ymm0, [rbp+32]
+    mov rsi, [rbp+40]
+
+.loop:
+
+    cmp rax, 0x0             ;  if(size == 0) {
+    jz .done                 ;     goto done;
+                             ;  } else if (size < 4) {
+    cmp rax, 0x4             ;     goto lt4elm;
+    js .lt4elm               ;  } else {
+                             ;     rax -= 4
+    sub rax, 0x4             ;  }
+
+    vmovupd ymm1, [rdi]
+
+    vdivpd ymm1, ymm0, ymm1
+    vmovupd [rsi], ymm1
+
+    add rdi, 0x20
+    add rsi, 0x20
+
+    jmp .loop
+
+.lt4elm:
+
+    cmp rax, 0x1
+    jz .last_elm
+    sub rax, 0x2
+
+    movupd xmm1, [rdi]
+    vdivpd xmm1, xmm0, xmm1
+    movupd [rsi], xmm1
+
+    cmp rax, 0x0
+    jz .done
+
+    add rdi, 0x10
+    add rsi, 0x10
+
+.last_elm:
+
+    movq xmm1, [rdi]
+    vdivsd xmm1, xmm0, xmm1
+    movq [rdi], xmm1
+
+.done:
+    mov rsp, rbp
+    pop rbp
+    ret  
+
+
+; computes exp ^ x TODO: search for better approximation
+; expsv(long size, double* v1, double* out)
+expv:
+
+    ; function frame
+    push rbp
+    mov rbp, rsp
+
+    ; Load Arguments
+    mov rax, [rbp+16]
+    mov rdi, [rbp+24]
+    mov rsi, [rbp+32]
+
+    vbroadcastsd ymm0, [one_float]
+    vbroadcastsd ymm1, [e]            ; Vector of e
+    vbroadcastsd ymm2, [zero_float]   ; Vector of zeros
+    vbroadcastsd ymm9, [sign_mask]
+
+.loop:
+
+    cmp rax, 0x0             
+    jz .done                 
+                             
+    cmp rax, 0x4             
+    ja .morethan4
+
+    cmp rax, 0x1
+    jz .one_elm
+    jmp .two_elm
+                             
+.morethan4:
+    vmovupd ymm3, [rdi]
+    mov rdx, 0x4
+    jmp .init
+.two_elm:
+    movupd xmm3, [rdi]
+    mov rdx, 0x2
+    jmp .init
+.one_elm:
+    movq xmm3, [rdi]
+    mov rdx, 0x1
+
+.init:
+
+    ; Save sign & compute absolute value
+    vcmpgtpd ymm10, ymm3, ymm2
+    vandnpd ymm3, ymm9, ymm3
+
+    vbroadcastsd ymm7, [one_float]    ; Vector of ones
+    vroundpd ymm4, ymm3, 0x01         ; ymm4 has integer part
+    vsubpd ymm3, ymm4                 ; ymm3 has float part
+
+;;;;;;;; Exponential Of Integer Part ;;;;;;;;
+
+.innerloop1:
+
+    ; Get Mask
+    vcmpgtpd ymm5, ymm4, ymm2 
+    
+    ; Check if all not greater than zero
+    vextractf128 xmm6, ymm5, 0x1
+    vextractf128 xmm8, ymm5, 0x0
+    
+    haddpd xmm6, xmm6
+    haddpd xmm8, xmm8
+
+    addpd xmm6, xmm8
+
+    movq rcx, xmm6
+    cmp rcx, 0x0
+    jz .endloop1
+
+    vsubpd ymm4, ymm0
+
+    ; Multiply
+    vandnpd ymm8, ymm5, ymm7
+    vmulpd ymm7, ymm1
+    vandpd ymm7, ymm5
+    vaddpd ymm7, ymm8
+
+    jmp .innerloop1
+
+.endloop1:
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;;;;;;;;; Exponential Of Float Part ;;;;;;;;;
+
+.init_counter:
+
+    mov rcx, 0x15
+    vbroadcastsd ymm4, [one_float]
+
+.innerloop2:
+
+    cmp rcx, 0x0
+    jz .endloop2
+
+    cvtsi2sd xmm5, rcx
+    vbroadcastsd ymm5, xmm5
+
+    vdivpd ymm5, ymm3, ymm5 
+    vmulpd ymm4, ymm5       
+    vaddpd ymm4, ymm0       
+
+    dec rcx
+
+    jmp .innerloop2
+
+.endloop2:
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;;;;;;;;; e ^ (n + f) = (e^n) * (e^f) ;;;;;;;;;;
+
+    vmulpd ymm7, ymm4
+    vdivpd ymm3, ymm0, ymm7
+
+    ; vcmpeqpd ymm10, ymm2
+
+    vandpd ymm7, ymm10
+    vandnpd ymm3, ymm10, ymm3
+    vaddpd ymm7, ymm3
+
+    cmp rdx, 0x4
+    jnz .lt4
+    vmovupd [rsi], ymm7
+    jmp .update
+
+.lt4:
+    cmp rdx, 0x2
+    jnz .lt2
+    movupd [rsi], xmm7
+    jmp .update
+
+.lt2:
+    movq [rsi], xmm7
+    jmp .update
+
+.update:
+
+    sub rax, rdx
+    imul rdx, 0x8
+
+    add rdi, rdx
+    add rsi, rdx
+
+    jmp .loop
+
+.done:
+    mov rsp, rbp
+    pop rbp
+    ret  
 
 ; Addition of a vector with a scalar
 ; addvs(long size, double* v1, double scalar, double* out)
@@ -738,11 +960,6 @@ matmul:
     push rbp
     mov rbp, rsp
 
-    ; Make room for two variables of 8 bytes each
-    sub rsp, 0x10
-
-    mov rax, rbp
-
 .outerloop:
 
     cmp QWORD [rbp+16], 0x0  ; if (a == 0 )
@@ -755,7 +972,7 @@ matmul:
 .innerloop:
 
     cmp rax, 0x0          ; if (c == 0)
-    jz .inc               ; {  goto outerloop; }
+    jz .inc               ; { goto inc; }
     dec rax               ; then { c--; }               
 
     push rax              ; Save RAX
@@ -784,6 +1001,7 @@ matmul:
     imul rdx, 0x8
     add [rbp+40], rdx     ; m1 += b * sizeof(double)
     jmp .outerloop
+
 .done:
     ; Clear frame & return
     mov rsp, rbp
@@ -806,10 +1024,14 @@ vdotproduct:
 
     vxorpd ymm0, ymm0 ; Zero all ymm0 register
 
+
 .loop:
 
     cmp rcx, 0x0
     jz .return
+
+    cmp rcx, 0x4
+    js .add_last_two_elm
 
     vmovupd ymm1, [rsi]
     vmovupd ymm2, [rdx]
@@ -819,9 +1041,6 @@ vdotproduct:
     sub rcx, 0x4
     add rsi, 0x20
     add rdx, 0x20
-
-    cmp rcx, 0x4
-    js .add_last_two_elm
 
     jmp .loop
 
@@ -1125,110 +1344,54 @@ std_0:
     pop rbp
     ret
 
-; Computes log of a double using trapez approximation
-; log(double* values, double* out)
-vlogpd:
+; transpose(long nrows, long ncols, double* m, double* out)
+transpose:
 
-    ; Stack frame
+    ; function frame
     push rbp
     mov rbp, rsp
 
-    ; First argument, an array of four double precision 
-    mov rdx, [rbp+16]       
-    vmovupd ymm0, [rdx]  
+    mov rdi, QWORD [rbp+16]
 
-    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-    ;;;;;; inverse arguments less than 1 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+.outerloop:
 
-    vmovupd ymm1, ymm0          ; Copy arguments to ymm1 and ymm0
-    vmovupd ymm2, ymm0
+    cmp rdi, 0x0
+    jz .done
+    dec rdi
 
-    mov rax, 0x3FF0000000000000 ; Put ones in ymm3 and ymm4
-    push rax
-    vbroadcastsd  ymm3, [rsp]
-    vmovupd ymm4, ymm3
+    mov rcx, [rbp+24]
 
-    vcmpgtpd ymm3, ymm0         ; Compute mask where it is all ones for elements less than one
+.innerloop:
 
-    vandpd ymm0, ymm3           ; ymm1 will have elements that are greater than 1
-    vsubpd ymm1, ymm0           
+    cmp rcx, 0x0
+    jz .outerloop
+    dec rcx
 
-    vdivpd ymm4, ymm2           ; ymm4 will have inverse of elements that are less than one
-    vandpd ymm4, ymm3           ; other elements are zeroed
+    ; i * ncols + j
+    mov rax, rdi
+    imul rax, QWORD [rbp+24]
+    add rax, rcx
+    imul rax, 0x8
 
-    vaddpd ymm4, ymm1           ; ymm0 now have the desired values
-    vmovupd ymm0, ymm4        
+    ; j * nrows + i
+    mov rdx, rcx
+    imul rdx, QWORD [rbp+16]
+    add rdx, rdi
+    imul rdx, 0x8
 
-    ; Save sign for later
+    ; m2[j][i] = m1[i][j]
+    mov rsi, QWORD [rbp+32]
+    add rsi, rax
 
-    vbroadcastsd ymm1, [rsp] ; ymm1 := 1
-    vxorpd ymm7, ymm7 ; ymm2 := 0
-    vsubpd ymm7, ymm1 ; ymm2 := ymm2 - ymm1
-    vandpd ymm7, ymm3 ; ymm1 has -1 if less than 1 else 0
+    mov rax, [rsi]
 
-    vmovupd ymm4, ymm1
-    vandpd  ymm4, ymm3 ; ymm4 has 1 if less than 1 else 0
-    vsubpd  ymm1, ymm4 ; ymm1 has 0 if less than 1 else 1
+    mov rsi, QWORD [rbp+40]
+    add rsi, rdx
 
-    vaddpd ymm7, ymm1
+    mov [rsi], rax
 
-    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    jmp .innerloop
 
-    mov rax, [rbp+24]       ; Second Argument to the pointer used to return the value
-
-    ; Compute Steps
-    mov rdx, 0x3FF0000000000000  ; Move the value 1 to all parts of ymm1
-    push rdx
-    vbroadcastsd ymm1, [rsp]
-
-    vmovupd ymm2, ymm0 
-    vsubpd ymm2, ymm1            ; ymm2 := values - 1
-
-    mov rdx, 0x40C3880000000000  ; Move value 10^4 to all parts of ymm1
-    push rdx
-    vbroadcastsd ymm1, [rsp]
-
-    vdivpd ymm2, ymm1            ; ymm2 := (values - 1) / 10^4
-
-    ; Copy constants
-    mov rdx, 0x3FE0000000000000  ; Move 0.5 to all parts of ymm1
-    push rdx
-    vbroadcastsd ymm1, [rsp]
-
-    add rsp, 0x20 ; Free local constants
-
-    mov rdx, 0x3FF0000000000000  ; Move 1 to all parts of ymm3
-    push rdx
-    vbroadcastsd ymm3, [rsp]
-
-    vxorpd ymm4, ymm4 ; Zero register ymm4 ; will be used to store the results
-
-    mov rcx, 0x2710   ; Put 10^4 in rcx
-
-.loop:
-
-    cmp rcx, 0x0                ; if (rcx == 0) {
-    jz .return                  ;   goto return;
-    dec rcx                     ; } else { rcx--; }
-
-    vbroadcastsd ymm5, [rsp]    ; ymm5 := 1
-    vdivpd ymm5, ymm3           ; ymm5 := 1/ymm3 := 1/x0
-
-    vaddpd ymm3, ymm2           ; ymm3 := ymm3 + ymm2 = x0+dx
-    vbroadcastsd ymm6, [rsp]    ; ymm5 := 1
-    vdivpd ymm6, ymm3           ; ymm5 := 1/ymm3 := 1/(x0+dx)
-
-    vaddpd ymm6, ymm5           ; ymm6 := ymm6 + ymm5 := (1/x0) + (1/(x0+dx))
-    vmulpd ymm6, ymm2           ; ymm6 := ymm6 * ymm2 := dx * ((1/x0) + (1/(x0+dx)))
-    vmulpd ymm6, ymm1           ; ymm6 := ymm6 * ymm1 := 0.5 * dx * ((1/x0) + (1/(x0+dx)))
-
-    vaddpd ymm4, ymm6           ; xmm4 += xmm5
-
-    jmp .loop
-
-.return:
-    vmulpd ymm4, ymm7
-    vmovupd [rax], ymm4
 .done:
     mov rsp, rbp
     pop rbp

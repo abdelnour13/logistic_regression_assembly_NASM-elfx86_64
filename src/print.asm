@@ -239,9 +239,10 @@ putf:
     pop rax
     cvtsi2sd xmm1, rax
     subsd xmm0, xmm1
-    mov rdx, 0xF4240    
+    mov rdx, 0xF4240  
     cvtsi2sd xmm1, rdx
     mulsd xmm0, xmm1
+    roundsd xmm0, xmm0, 0x01
     cvtsd2si rax, xmm0
 
     cmp rax, 0x0

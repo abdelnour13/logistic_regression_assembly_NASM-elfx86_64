@@ -4,6 +4,7 @@
 
 section .data
     one_float dq 1.0
+    negative_float dq -1.0
 
 section .text
 
@@ -20,17 +21,28 @@ section .text
     extern realloc
     extern display_memory
 
+    extern mulvs
+    extern addvs
+    extern divsv
+    extern expv
+    extern matmul
+    extern subvv
+    extern transpose
+
     extern parse_float
     extern fopen
     extern fread
     extern fclose
 
-
+    
     extern display_matrix
 
     ; Exports
     global accuracy
     global load_matrix
+    global sigmoid
+    global logistic_regression
+    global inference
 
 
 ; Computes the accuracy 
@@ -323,12 +335,24 @@ load_matrix:
 .return:
 
     mov rax, [rbp+24]
+
+    cmp rax, 0x0
+    jz .ncols
+
     mov rdx, [rbp-0x79]
     mov [rax], rdx
 
+.ncols:
+
     mov rax, [rbp+32]
+
+    cmp rax, 0x0
+    jz .data
+
     mov rdx, [rbp-0x81]
     mov [rax], rdx
+
+.data:
 
     mov rax, [rbp+40]
     mov rdx, [rbp-0x8]
@@ -337,6 +361,295 @@ load_matrix:
 .done:
 
     ; Clear frame and return
+    mov rsp, rbp
+    pop rbp
+    ret
+
+; Computes 1 / (1 + np.exp(-x))
+; sigmoid(long size, double* v, double* out)
+sigmoid:
+
+    ; function frame
+    push rbp
+    mov rbp, rsp
+
+    ; Compute -x
+    push QWORD [rbp+32]
+    push QWORD [negative_float]
+    push QWORD [rbp+24]
+    push QWORD [rbp+16]
+    call mulvs
+    add rsp, 0x20
+
+    ; Compute exp(-x)
+    push QWORD [rbp+32]
+    push QWORD [rbp+32]
+    push QWORD [rbp+16]
+    call expv
+    add rsp, 0x18
+
+    ; Compute 1 + exp(-x)
+    push QWORD [rbp+32]
+    push QWORD [one_float]
+    push QWORD [rbp+32]
+    push QWORD [rbp+16]
+    call addvs
+    add rsp, 0x20
+
+    ; Compute 1 / (1 + exp(-x))
+    push QWORD [rbp+32]
+    push QWORD [one_float]
+    push QWORD [rbp+32]
+    push QWORD [rbp+16]
+    call divsv
+    add rsp, 0x20
+
+.done:
+    ; clear stack frame & return
+    mov rsp, rbp
+    pop rbp
+    ret
+
+
+; Train a Logestic Regression 
+; logistic_regression(
+;    long nrows, long ncols, double* data, double* labels, double lr, long epochs
+;    double** w, double* b
+; )
+logistic_regression:
+
+    ; Function frame
+    push rbp
+    mov rbp, rsp
+
+    ; Local Variables :
+    ; - 8 bytes float 1 / nrows : rbp-0x38
+    ; - 8 bytes float db : rbp-0x30
+    ; - Temp buffer3 of nrows * ncols : rbp-0x28
+    ; - Temp buffer2 of ncols : rbp-0x20
+    ; - Temp buffer1 of nrows : rbp-0x18
+    ; - Bias : rbp-0x10
+    ; - Weight : rbp-0x8
+    sub rsp, 0x38
+
+    xor rax, rax           ; bias <- 0
+    mov [rbp-0x10], rax
+
+    movq xmm0, [one_float]         ; Initi with lr / nrows
+    mov rax, [rbp+16]
+    cvtsi2sd xmm1, rax
+    divsd xmm0, xmm1
+    mulsd xmm0, [rbp+48]
+    movq [rbp-0x38], xmm0
+
+    ; Allocate memory for weight
+    mov rax, rbp           ; &w
+    sub rax, 0x8
+
+    mov rdx, [rbp+24]      ; Number of bytes to allocate ncols * sizeof(double)
+    imul rdx, 0x8
+
+    ; Allocate memory for weight vector
+    push rax
+    push rdx
+    call mmap
+    add rsp, 0x10
+
+    ; Allocate memory tempbuf1
+    mov rax, rbp           
+    sub rax, 0x18
+
+    mov rdx, [rbp+16]      ; Number of bytes to allocate nrows * sizeof(double)
+    imul rdx, 0x8
+
+    push rax
+    push rdx
+    call mmap
+    add rsp, 0x10
+
+    ; Allocate memory tempbuf2
+    mov rax, rbp           
+    sub rax, 0x20
+
+    mov rdx, [rbp+24]      ; Number of bytes to allocate ncols * sizeof(double)
+    imul rdx, 0x8
+
+    push rax
+    push rdx
+    call mmap
+    add rsp, 0x10
+
+    ; Allocate memory tempbuf3
+    mov rax, rbp           
+    sub rax, 0x28
+
+    mov rdx, [rbp+24]      ; Number of bytes to allocate nrows * ncols * sizeof(double)
+    imul rdx, [rbp+16]
+    imul rdx, 0x8
+
+    push rax
+    push rdx
+    call mmap
+    add rsp, 0x10
+
+    ; Transpose data
+    push QWORD [rbp-0x28]
+    push QWORD [rbp+32]
+    push QWORD [rbp+24]
+    push QWORD [rbp+16]
+    call transpose
+    add rsp, 0x20
+
+.loop:
+
+    cmp QWORD [rbp+56], 0x0
+    jz .return
+    dec QWORD [rbp+56]
+
+    ; y_hat = sigmoid(X @ W + b)
+    push QWORD [rbp-0x18]
+    push QWORD [rbp-0x8]
+    push QWORD [rbp+32]
+    push 0x1
+    push QWORD [rbp+24]
+    push QWORD [rbp+16]
+    call matmul
+    add rsp, 0x30
+
+    push QWORD [rbp-0x18]
+    push QWORD [rbp-0x10]
+    push QWORD [rbp-0x18]
+    push QWORD [rbp+16]
+    call addvs
+    add rsp, 0x20
+
+    push QWORD [rbp-0x18]
+    push QWORD [rbp-0x18]
+    push QWORD [rbp+16]
+    call sigmoid
+    add rsp, 0x18
+
+    ; Compute dz = y_hat - y
+    push QWORD [rbp-0x18]
+    push QWORD [rbp+40]
+    push QWORD [rbp-0x18]
+    push QWORD [rbp+16]
+    call subvv
+    add rsp, 0x20
+
+    ; Compute lr * dw = lr * (X.T @ dz) / nrows
+    push QWORD [rbp-0x20]
+    push QWORD [rbp-0x18]
+    push QWORD [rbp-0x28]
+    push QWORD 0x1
+    push QWORD [rbp+16]
+    push QWORD [rbp+24]
+    call matmul
+    add rsp, 0x30
+
+    push QWORD [rbp-0x20]
+    push QWORD [rbp-0x38]
+    push QWORD [rbp-0x20]
+    push QWORD [rbp+16]
+    call mulvs
+    add rsp, 0x20
+
+    ; Compute lr * db = lr * sum(dz) / nrows
+    mov rax, rbp
+    sub rax, 0x30
+
+    push QWORD rax
+    push QWORD [rbp-0x18]
+    push QWORD [rbp+16]
+    call vhsum
+    add rsp, 0x18
+
+    movq xmm0, [rbp-0x30]
+    mulsd xmm0, [rbp-0x38]
+    movq [rbp-0x30], xmm0
+
+    ; update
+
+    ; w -= lr * dw
+    push QWORD [rbp-0x8]
+    push QWORD [rbp-0x20]
+    push QWORD [rbp-0x8]
+    push QWORD [rbp+24]
+    call subvv
+    add rsp, 0x20
+
+    ; b -= lr * db
+    movq xmm0, [rbp-0x30]
+    movq xmm1, [rbp-0x10]
+    subsd xmm1, xmm0
+    movq [rbp-0x10], xmm1
+
+    jmp .loop
+
+.return:
+
+    mov rax, [rbp+64]
+    mov rdx, [rbp-0x8]
+    mov [rax], rdx
+
+    mov rax, [rbp+72]
+    mov rdx, [rbp-0x10]
+    mov [rax], rdx
+
+.done:
+    ; Clear stack & return
+    mov rsp, rbp
+    pop rbp
+    ret
+
+; inference (long nrows, long ncols, double* data, double* w, double b, double** out)
+inference:
+
+    ; stack frame
+    push rbp
+    mov rbp, rsp
+
+    ; One variable pointer to buffer of nrows
+    sub rsp, 0x8
+
+    ; Allocate memory for output buffer
+    mov rax, [rbp+16]
+    imul rax, 0x8
+
+    push rsp
+    push rax
+    call mmap
+    add rsp, 0x10
+
+    ; Inference
+    push QWORD [rbp-0x8]
+    push QWORD [rbp+40]
+    push QWORD [rbp+32]
+    push 0x1
+    push QWORD [rbp+24]
+    push QWORD [rbp+16]
+    call matmul
+    add rsp, 0x30
+
+    push QWORD [rbp-0x8]
+    push QWORD [rbp+48]
+    push QWORD [rbp-0x8]
+    push QWORD [rbp+16]
+    call addvs
+    add rsp, 0x20
+
+    push QWORD [rbp-0x8]
+    push QWORD [rbp-0x8]
+    push QWORD [rbp+16]
+    call sigmoid
+    add rsp, 0x18
+
+.return:
+    mov rax, [rbp+56]
+    mov rdx, [rsp]
+    mov [rax], rdx
+
+.done:
     mov rsp, rbp
     pop rbp
     ret

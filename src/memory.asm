@@ -2,7 +2,11 @@
 ;;;;;;;;;;;;;;;; Defines utilities for working with memory ;;;;;;;;;;;;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+section .data
+    realloc_msg db "Rallocating failed", 0xA, 0x0
+
 section .text
+    extern puts
     global mmap
     global realloc
 
@@ -53,6 +57,10 @@ realloc:
 
     test rax, rax
     ja .return
+
+    push realloc_msg
+    call puts
+    add rsp, 0x8
 
     ; Else need to allocate new memeory & copy data
     sub rsp, 0x8
