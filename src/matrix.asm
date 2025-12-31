@@ -13,6 +13,7 @@ section .text
     extern printf
     extern putc
     extern mmap
+    extern free
 
     global display_matrix
 
@@ -1239,6 +1240,7 @@ var_0:
     mov [rbp-32], rax          ; d = nrows * ncols
 
     ;;;;;;;;;;;;;;;;;;;; Allocate an array of ncols doubles ;;;;;;;;;;;;;;;;;;;
+
     mov rax, [rbp+24]  ; rax = ncols * sizeof(double)
     imul rax, 0x8
 
@@ -1253,6 +1255,7 @@ var_0:
     ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
     ;;;;;;;;;; Allocate an array with the same size as the input ;;;;;;;;;;;;;;
+
     mov rax, [rbp+16]
     imul rax, [rbp+24]
     imul rax, 0x8
@@ -1312,6 +1315,29 @@ var_0:
     push QWORD [rbp+24]
     call subvv
     add rsp, 0x20
+
+    ;;;;;;;;;;;;;;;;;;;;;; Free Memory ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+    ; Free first buffer
+    mov rax, [rbp+24]  
+    imul rax, 0x8
+
+    push rax           
+    push QWORD [rbp-0x10]           
+    call free          
+    add rsp, 0x10  
+
+    ; Free second buffer
+    mov rax, [rbp+16]
+    imul rax, [rbp+24]
+    imul rax, 0x8
+
+    push rax           
+    push QWORD [rbp-0x18]           
+    call free          
+    add rsp, 0x10     
+
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 .done:
     mov rsp, rbp

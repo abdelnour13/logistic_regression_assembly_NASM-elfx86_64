@@ -8,7 +8,6 @@ section .data
 section .text
 
     extern printf
-    extern puti
 
     global fopen
     global fread

@@ -6,9 +6,14 @@ section .data
     realloc_msg db "Rallocating failed", 0xA, 0x0
 
 section .text
+
+    ; Imports
     extern puts
+
+    ; Exports
     global mmap
     global realloc
+    global free
 
 ; Allocate memory
 ; mmap(long size, long* addr)
@@ -97,4 +102,14 @@ realloc:
     mov [rsi], rax
 
 .return:
+    ret
+
+; free(long ptr)
+free:
+
+    mov rax, 11          ; System call number for munmap
+    mov rdi, [rbp+8]     ; First argument (addr) 
+    mov rsi, [rbp+16]    ; Second argument (length)
+    syscall              ; Invoke the system call
+
     ret

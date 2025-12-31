@@ -9,17 +9,13 @@ section .data
 section .text
 
     ; Imports
+    extern mmap
+    extern realloc
+    extern free
+
     extern gtvs
     extern eqvv
     extern vhsum
-    extern mmap
-    extern puti
-    extern putf
-    extern putc
-    extern print_buffer
-    extern puts
-    extern realloc
-    extern display_memory
 
     extern mulvs
     extern addvs
@@ -33,9 +29,6 @@ section .text
     extern fopen
     extern fread
     extern fclose
-
-    
-    extern display_matrix
 
     ; Exports
     global accuracy
@@ -358,6 +351,12 @@ load_matrix:
     mov rdx, [rbp-0x8]
     mov [rax], rdx
 
+.close:
+
+    push QWORD [rbp-0x10]
+    call fclose
+    add rsp, 0x8
+
 .done:
 
     ; Clear frame and return
@@ -595,6 +594,36 @@ logistic_regression:
     mov rax, [rbp+72]
     mov rdx, [rbp-0x10]
     mov [rax], rdx
+
+.free:
+
+    ; Free temp buffer3
+    mov rdx, [rbp+24]
+    imul rdx, [rbp+16]
+    imul rdx, 0x8
+
+    push rdx
+    push QWORD [rbp-0x28]
+    call free
+    add rsp, 0x10
+
+    ; Free temp buffer2
+    mov rdx, [rbp+24]
+    imul rdx, 0x8
+
+    push rdx
+    push QWORD [rbp-0x20]
+    call free
+    add rsp, 0x10
+
+    ; Free temp buffer1
+    mov rdx, [rbp+16]
+    imul rdx, 0x8
+
+    push rdx
+    push QWORD [rbp-0x18]
+    call free
+    add rsp, 0x10
 
 .done:
     ; Clear stack & return

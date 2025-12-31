@@ -12,61 +12,13 @@ section .data
     lr dq 0.1
     threshold dq 0.5
 
-section .bss
-    buffer resb 1024
-    buflen equ $-buffer
-
 section .text
 
-    ; Memory
-    extern mmap
-    extern realloc
-
-    ; Printing functions
-    extern print_buffer
-    extern display_memory
+    ; Imports
     extern puts
-    extern putc
-    extern puti
-    extern putf
     extern printf
-
-    ; Working with vector and matrices
     extern display_matrix
 
-    extern gtv
-
-    extern addvs
-    extern mulvs
-    extern divvs
-    extern divsv
-
-    extern addvv
-    extern subvv
-    extern xorvv
-    extern eqvv
-    extern mulvv
-
-    extern matmul
-    extern vdotproduct
-
-    extern vhsum
-    extern sum_0
-    extern mean_0
-    extern std_0
-
-    extern transpose
-    extern expv
-
-    ; I/O
-    extern fopen
-    extern fread
-    extern fclose
-
-    ; Utils
-    extern parse_float
-
-    ; Logistic regression functions
     extern accuracy
     extern load_matrix
     extern sigmoid
@@ -247,7 +199,6 @@ main:
     push accuracy_str
     call printf
     add rsp, 0x10
-
 
 .exit:
     ; System call for sys_exit (syscall number 60 in x86-64 Linux ABI)

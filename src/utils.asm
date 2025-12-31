@@ -4,7 +4,8 @@ section .data
     negative_double dq -1.0
 
 section .text
-    extern puti
+
+    ; Exports
     global parse_float
     global exit
 
